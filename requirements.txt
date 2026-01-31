@@ -4,7 +4,7 @@
 # Vision
 ultralytics>=8.0.0          # YOLOv10 support (includes YOLOv8)
 mediapipe>=0.10.0           # Pose estimation - 10-15 FPS on CPU
-opencv-python>=4.8.0        # Image processing
+opencv-python-headless>=4.8.0  # Image processing (headless for cloud deployment)
 
 # Audio
 librosa>=0.10.0             # Audio feature extraction
