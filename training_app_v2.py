@@ -572,16 +572,14 @@ def render_analyze_mode():
                     key="paste_image"
                 )
                 if paste_result.image_data is not None:
-                    # Only save if we don't already have a file from paste
-                    # This prevents re-saving on rerun which would create a new file path
-                    # and break the confirm button comparison (last_analysis['file'] != current_input_file)
-                    if st.session_state.get('current_input_source') != 'paste' or st.session_state.get('current_input_file') is None:
-                        file_path, _ = save_pasted_image(paste_result.image_data)
-                        if file_path:
-                            selected_file = file_path
-                            input_source = 'paste'
-                            st.success(t('messages.image_pasted'))
-                            add_activity(st.session_state, '', t('messages.pasted_clipboard'))
+                    file_path, _ = save_pasted_image(paste_result.image_data)
+                    if file_path:
+                        selected_file = file_path
+                        input_source = 'paste'
+                        # Clear previous analysis when new image pasted
+                        st.session_state.last_analysis = None
+                        st.success(t('messages.image_pasted'))
+                        add_activity(st.session_state, '', t('messages.pasted_clipboard'))
             else:
                 st.warning(t('messages.paste_requires'))
     else:
@@ -785,6 +783,8 @@ def render_analyze_mode():
                             st.session_state.current_input_file = None
                             st.session_state.current_input_source = None
                             st.session_state.last_analysis = None
+
+                            st.rerun()
 
                     with col_skip:
                         if st.button(
