@@ -1,0 +1,36 @@
+# User data (each user has their own)
+Data_Bank/
+logs/
+
+# ML models (auto-downloaded on first run)
+*.pt
+
+# Temp files
+*.pyc
+__pycache__/
+.DS_Store
+
+# Input folders (user provides their own)
+01_Chicken_Images/
+01_Chicken_Sounds/
+02_Health_Report/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+
+# Environment
+.env
+venv/
+.venv/
+
+# Debug logs
+firebase-debug.log
+*.log
+
+# Screenshots and temp files from testing
+.playwright-mcp/
+
+# Backup files
+*.save

@@ -1,0 +1,74 @@
+# Sentio MVP Configuration
+# Tier 1: High Quality CPU Models
+
+paths:
+  input_images: "01_Chicken_Images"
+  input_sounds: "01_Chicken_Sounds"
+  healthy_images_folder: "Data_Bank/Verified_Healthy_Images"
+  sick_images_folder: "Data_Bank/Verified_Sick_Images"
+  healthy_audio_folder: "Data_Bank/Verified_Healthy_Audio"
+  sick_audio_folder: "Data_Bank/Verified_Sick_Audio"
+  staging_folder: "Data_Bank/Staging"
+  reports_folder: "02_Health_Report"
+
+vision:
+  # YOLOv10n: 10% faster than YOLOv8n, better accuracy (mAP 38.5% vs 37.3%)
+  detection_model: "yolov10n.pt"
+  confidence_threshold: 0.25  # Lowered from 0.5 to catch more chickens; health analysis filters false positives
+  bird_class_id: 14  # COCO class 14 = bird
+  use_pose_estimation: true
+
+  # Health scoring weights (should sum to 1.0)
+  weights:
+    aspect_ratio: 0.25
+    saturation: 0.25
+    brightness: 0.25
+    pose_alignment: 0.25
+
+  # Thresholds for healthy indicators
+  thresholds:
+    aspect_ratio_healthy: 0.8      # Standing posture
+    saturation_healthy: 100        # Vibrant comb color
+    brightness_healthy: 80         # Alert, not lethargic
+    health_score_threshold: 0.676    # Score above this = healthy
+
+audio:
+  # BirdNET-Lite: 85-90% accuracy on vocalizations, 6.5 MB model
+  use_birdnet: true
+  duration_seconds: 5.0
+  sample_rate: 22050
+
+  # Distress detection thresholds
+  thresholds:
+    # Chicken pitch: normal 300-800 Hz, distress 1000-2000 Hz
+    pitch_distress_high: 1200       # Clear distress
+    pitch_distress_medium: 1000     # Possible distress
+    volume_high: 0.08               # High volume = distress
+    volume_medium: 0.05             # Elevated volume
+    volume_variance_high: 0.03      # Irregular calling
+    call_rate_high: 3.0             # Rapid calling (calls/sec)
+    call_rate_medium: 2.0           # Elevated calling
+    zcr_high: 0.15                  # Harsh/irregular sounds
+    distress_score_threshold: 0.5   # Score above this = distress
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "logs/sentio_analysis.log"
+  format: "%(asctime)s - %(levelname)s - %(message)s"
+
+# Threshold tuning configuration
+# Auto-adjusts thresholds based on human feedback patterns
+threshold_tuning:
+  enabled: true
+  min_samples_before_update: 10    # Minimum feedback samples before suggesting changes
+  learning_rate: 0.1               # How aggressively to adjust (0.05-0.2 recommended)
+  history_file: "Data_Bank/threshold_history.json"
+
+# Reference-based classification using verified samples
+# Compares new images to verified healthy/sick samples to improve accuracy
+reference_comparison:
+  enabled: true
+  min_samples_per_class: 3        # Minimum verified samples before using reference
+  similarity_weight: 0.3          # How much to weight reference similarity (0-1)
+  k_neighbors: 5                  # Number of similar images to consider
+  database_file: "Data_Bank/reference_features.json"

@@ -1,0 +1,25 @@
+# Sentio MVP-Dev Requirements
+# Tier 1: High Quality CPU Models
+
+# Vision
+ultralytics>=8.0.0          # YOLOv10 support (includes YOLOv8)
+mediapipe>=0.10.0           # Pose estimation - 10-15 FPS on CPU
+opencv-python>=4.8.0        # Image processing
+
+# Audio
+librosa>=0.10.0             # Audio feature extraction
+birdnetlib>=0.7.0           # BirdNET-Lite for vocalization classification
+soundfile>=0.12.0           # Audio file I/O (librosa dependency)
+
+# Core
+numpy>=1.24.0               # Numerical operations
+pyyaml>=6.0                 # Configuration file parsing
+
+# Web UI (Training Loop)
+streamlit>=1.31.0           # Interactive web app for training (audio input support)
+matplotlib>=3.7.0           # Audio waveform visualization
+streamlit-paste-button>=0.1 # Clipboard image paste support
+
+# Optional: ONNX optimization for faster CPU inference
+# Uncomment if you want to export models to ONNX format
+# onnxruntime>=1.16.0
