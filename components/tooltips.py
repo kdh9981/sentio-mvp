@@ -3,10 +3,14 @@ Sentio Training App - Tooltip System
 
 Comprehensive tooltips for every UI element, plus expandable
 "How it works" explanations for complex concepts.
+
+Now supports bilingual tooltips via the i18n module.
 """
 
+from .i18n import get_translated_tooltip, get_translated_how_it_works
 
-# Main tooltip dictionary - organized by category
+
+# Main tooltip dictionary - organized by category (English defaults)
 TOOLTIPS = {
     # === FEEDBACK BUTTONS ===
     'correct_button': (
@@ -159,15 +163,18 @@ TOOLTIPS = {
 
 def get_tooltip(key: str) -> str:
     """
-    Get a tooltip by key, with fallback for unknown keys.
+    Get a tooltip by key with bilingual support.
+
+    Uses the i18n module to return translated tooltips based on
+    the current language setting in session state.
 
     Args:
         key: The tooltip key (e.g., 'correct_button', 'health_score')
 
     Returns:
-        The tooltip text, or a default message if key not found
+        The translated tooltip text, or English fallback
     """
-    return TOOLTIPS.get(key, "Hover for more information about this element.")
+    return get_translated_tooltip(key)
 
 
 # === HOW IT WORKS SECTIONS ===
@@ -334,7 +341,10 @@ before reference comparison activates.
 
 def get_how_it_works(key: str) -> dict:
     """
-    Get a 'How it works' section by key.
+    Get a 'How it works' section by key with bilingual support.
+
+    Uses the i18n module to return translated sections based on
+    the current language setting in session state.
 
     Args:
         key: The section key (e.g., 'vision_analysis', 'threshold_tuning')
@@ -342,11 +352,7 @@ def get_how_it_works(key: str) -> dict:
     Returns:
         dict with 'title', 'icon', and 'content' keys
     """
-    return HOW_IT_WORKS.get(key, {
-        'title': 'How It Works',
-        'icon': '',
-        'content': 'Information about this feature.',
-    })
+    return get_translated_how_it_works(key)
 
 
 def render_tooltip_icon(st, key: str, position: str = 'right'):

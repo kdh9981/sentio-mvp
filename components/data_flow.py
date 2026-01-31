@@ -5,20 +5,19 @@ Visual components showing the data pipeline stages:
 - Animated header with flowing particles
 - File location indicators
 - Real-time activity log
+
+Now supports bilingual labels via the i18n module.
 """
 
 from datetime import datetime
 from pathlib import Path
 
+from .i18n import t
 
-# Stage guidance messages
-STAGE_GUIDANCE = {
-    'input': '▼ Drop a file or click Browse to begin',
-    'ai': '⏳ AI is analyzing your file...',
-    'staging': '📋 Review the prediction below',
-    'review': '❓ Is the AI prediction correct?',
-    'verified': '✓ Success! Ready for next file →',
-}
+
+def get_stage_guidance(stage: str) -> str:
+    """Get translated stage guidance message."""
+    return t(f'guidance.{stage}')
 
 
 def render_data_flow_header(st, current_stage: str = 'input', is_loading: bool = False):
@@ -32,11 +31,11 @@ def render_data_flow_header(st, current_stage: str = 'input', is_loading: bool =
         is_loading: Whether AI analysis is in progress (shows spinner)
     """
     stages = [
-        {'id': 'input', 'icon': '📁', 'name': 'INPUT', 'desc': 'Upload, paste, or record'},
-        {'id': 'ai', 'icon': '🤖', 'name': 'AI ANALYSIS', 'desc': 'YOLOv10 + BirdNET'},
-        {'id': 'staging', 'icon': '📋', 'name': 'STAGING', 'desc': 'Saved for review'},
-        {'id': 'review', 'icon': '👁️', 'name': 'REVIEW', 'desc': 'Human validation'},
-        {'id': 'verified', 'icon': '✅', 'name': 'VERIFIED', 'desc': 'Training data'},
+        {'id': 'input', 'icon': '📁', 'name': t('pipeline.input'), 'desc': t('pipeline.input_desc')},
+        {'id': 'ai', 'icon': '🤖', 'name': t('pipeline.ai'), 'desc': t('pipeline.ai_desc')},
+        {'id': 'staging', 'icon': '📋', 'name': t('pipeline.staging'), 'desc': t('pipeline.staging_desc')},
+        {'id': 'review', 'icon': '👁️', 'name': t('pipeline.review'), 'desc': t('pipeline.review_desc')},
+        {'id': 'verified', 'icon': '✅', 'name': t('pipeline.verified'), 'desc': t('pipeline.verified_desc')},
     ]
 
     # Build the HTML
@@ -64,7 +63,7 @@ def render_data_flow_header(st, current_stage: str = 'input', is_loading: bool =
         # Add guidance panel for active stage
         guidance_html = ''
         if stage['id'] == current_stage:
-            guidance_text = STAGE_GUIDANCE.get(stage['id'], '')
+            guidance_text = get_stage_guidance(stage['id'])
             guidance_html = f'''
             <div class="stage-guidance">
                 <span class="guidance-arrow">▼</span>
@@ -103,7 +102,7 @@ def render_data_flow_header(st, current_stage: str = 'input', is_loading: bool =
     # Complete pipeline HTML with visual feedback loop
     pipeline_html = f"""
     <div class="pipeline-container">
-        <div class="pipeline-title">YOUR DATA'S JOURNEY</div>
+        <div class="pipeline-title">{t('pipeline.title')}</div>
         <div class="pipeline-stages">
             {stages_html}
         </div>
@@ -125,7 +124,7 @@ def render_data_flow_header(st, current_stage: str = 'input', is_loading: bool =
             </svg>
             <div class="feedback-badge">
                 <span class="feedback-badge-icon">↻</span>
-                Verified data improves AI accuracy
+                {t('pipeline.feedback_badge')}
             </div>
         </div>
     </div>
@@ -150,13 +149,13 @@ def render_file_location(st, current_path: str = None, prediction: str = None, m
         modality: 'vision' or 'audio' (auto-detected from file extension if not provided)
     """
     if not current_path:
-        st.markdown("""
+        st.markdown(f"""
         <div class="file-location">
             <div class="file-location-header">
-                FILE LOCATION
+                {t('file_location.title')}
             </div>
             <div class="file-path" style="color: var(--text-muted);">
-                No file selected
+                {t('file_location.no_file')}
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -189,20 +188,20 @@ def render_file_location(st, current_path: str = None, prediction: str = None, m
     location_html = f"""
     <div class="file-location">
         <div class="file-location-header">
-            FILE LOCATION
+            {t('file_location.title')}
         </div>
         <div class="file-path">
-            Current: {display_path}
+            {t('file_location.current', path=display_path)}
         </div>
         <div class="file-destination">
             <div style="display: flex; justify-content: space-between; margin-top: 8px;">
                 <span class="destination-healthy">
-                    If Correct → {correct_dest}
+                    {t('file_location.if_correct', dest=correct_dest)}
                 </span>
             </div>
             <div style="margin-top: 4px;">
                 <span class="destination-sick">
-                    If Wrong → {incorrect_dest}
+                    {t('file_location.if_wrong', dest=incorrect_dest)}
                 </span>
             </div>
         </div>
@@ -218,15 +217,15 @@ def render_file_location(st, current_path: str = None, prediction: str = None, m
 def _get_learning_hint(samples: int, has_suggestion: bool) -> str:
     """Get contextual hint based on learning progress."""
     if samples == 0:
-        return "Start reviewing to help calibrate AI thresholds"
+        return t('learning.hint_start')
     elif samples < 5:
-        return f"Keep going! {5 - samples} more reviews for initial calibration"
+        return t('learning.hint_progress', remaining=5 - samples)
     elif samples < 10:
-        return f"{10 - samples} more samples until threshold suggestion"
+        return t('learning.hint_samples', remaining=10 - samples)
     elif has_suggestion:
-        return "Threshold adjustment ready based on your feedback!"
+        return t('learning.hint_ready')
     else:
-        return "AI thresholds are well-calibrated from your feedback"
+        return t('learning.hint_calibrated')
 
 
 def render_learning_status(st, tuner_data: dict = None, stats: dict = None):
@@ -260,7 +259,7 @@ def render_learning_status(st, tuner_data: dict = None, stats: dict = None):
             <span style="font-size: 1.25rem;">🧠</span>
             <span style="font-family: var(--font-body); font-weight: 600;
                         color: var(--text-primary); font-size: 0.9rem;">
-                AI Learning Progress
+                {t('learning.title')}
             </span>
         </div>
         <div style="display: flex; gap: 24px; margin-bottom: 12px;">
@@ -268,14 +267,14 @@ def render_learning_status(st, tuner_data: dict = None, stats: dict = None):
                 <div style="font-family: var(--font-mono); font-size: 1.25rem;
                             color: var(--accent-info); font-weight: 600;">{samples}</div>
                 <div style="font-size: 0.7rem; color: var(--text-muted);
-                            text-transform: uppercase; letter-spacing: 0.05em;">Samples</div>
+                            text-transform: uppercase; letter-spacing: 0.05em;">{t('learning.samples')}</div>
             </div>
             <div style="text-align: center;">
                 <div style="font-family: var(--font-mono); font-size: 1.25rem;
                             color: {'var(--accent-healthy)' if accuracy >= 70 else 'var(--accent-sick)'};
                             font-weight: 600;">{accuracy:.0f}%</div>
                 <div style="font-size: 0.7rem; color: var(--text-muted);
-                            text-transform: uppercase; letter-spacing: 0.05em;">Accuracy</div>
+                            text-transform: uppercase; letter-spacing: 0.05em;">{t('learning.accuracy')}</div>
             </div>
         </div>
         <div style="background: var(--bg-deep); border-radius: 4px; height: 6px;
@@ -322,21 +321,21 @@ def render_feedback_panel(st, tuner_data: dict = None, stats: dict = None):
             threshold_section = f"""
             <div style="background: var(--bg-deep); padding: 12px; border-radius: 8px; margin-top: 12px;">
                 <div style="font-size: 0.75rem; color: var(--accent-warn); margin-bottom: 8px;">
-                    THRESHOLD ADJUSTMENT
+                    {t('feedback_panel.threshold_adjustment')}
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <span style="color: var(--text-muted);">Current:</span>
+                        <span style="color: var(--text-muted);">{t('feedback_panel.current')}</span>
                         <span style="font-family: var(--font-mono); color: var(--text-primary);">{current:.2f}</span>
                     </div>
                     <div style="color: var(--text-muted);">→</div>
                     <div>
-                        <span style="color: var(--text-muted);">Suggested:</span>
+                        <span style="color: var(--text-muted);">{t('feedback_panel.suggested')}</span>
                         <span style="font-family: var(--font-mono); color: var(--accent-warn);">{suggested:.2f}</span>
                     </div>
                 </div>
                 <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 8px;">
-                    Based on {tuner_data['samples']} boundary errors
+                    {t('feedback_panel.based_on', count=tuner_data['samples'])}
                 </div>
             </div>
             """
@@ -346,7 +345,7 @@ def render_feedback_panel(st, tuner_data: dict = None, stats: dict = None):
         samples_needed = max(0, 10 - tuner_data.get('samples', 0))
         threshold_section = f"""
         <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 12px;">
-            {samples_needed} more samples needed for threshold suggestions
+            {t('feedback_panel.samples_needed', count=samples_needed)}
         </div>
         """
 
@@ -354,15 +353,15 @@ def render_feedback_panel(st, tuner_data: dict = None, stats: dict = None):
     <div class="glass-card">
         <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted);
                     text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;">
-            FEEDBACK LOOP STATUS
+            {t('feedback_panel.title')}
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
             <div>
-                <div class="metric-label">Your Feedback</div>
-                <div class="metric-value">{tuner_data.get('samples', 0)} samples</div>
+                <div class="metric-label">{t('feedback_panel.your_feedback')}</div>
+                <div class="metric-value">{t('feedback_panel.samples', count=tuner_data.get('samples', 0))}</div>
             </div>
             <div>
-                <div class="metric-label">AI Accuracy</div>
+                <div class="metric-label">{t('feedback_panel.ai_accuracy')}</div>
                 <div class="metric-value {'metric-value-healthy' if accuracy_pct >= 70 else 'metric-value-sick'}">{accuracy_pct:.0f}%</div>
             </div>
         </div>
@@ -410,16 +409,16 @@ def render_activity_log(st, activities: list = None, max_items: int = 10):
             </div>
             """
     else:
-        items_html = """
+        items_html = f"""
         <div style="color: var(--text-muted); font-size: 0.8125rem; text-align: center; padding: 20px;">
-            No activity yet. Start analyzing or reviewing files!
+            {t('activity.no_activity')}
         </div>
         """
 
     log_html = f"""
     <div class="activity-log">
         <div class="activity-log-header">
-            SESSION ACTIVITY
+            {t('activity.title')}
         </div>
         {items_html}
     </div>
@@ -468,15 +467,15 @@ def render_input_method_cards(st, modality: str):
     """
     if modality == 'vision':
         methods = [
-            {'icon': '📤', 'name': 'Upload', 'desc': 'Drop image file'},
-            {'icon': '📋', 'name': 'Paste', 'desc': 'From clipboard'},
-            {'icon': '📁', 'name': 'Folder', 'desc': 'Browse files'},
+            {'icon': '📤', 'name': t('input_methods.upload'), 'desc': t('input_methods.upload_desc_image')},
+            {'icon': '📋', 'name': t('input_methods.paste'), 'desc': t('input_methods.paste_desc')},
+            {'icon': '📁', 'name': t('input_methods.folder'), 'desc': t('input_methods.folder_desc')},
         ]
     else:
         methods = [
-            {'icon': '📤', 'name': 'Upload', 'desc': 'Drop audio file'},
-            {'icon': '🎤', 'name': 'Record', 'desc': 'Use microphone'},
-            {'icon': '📁', 'name': 'Folder', 'desc': 'Browse files'},
+            {'icon': '📤', 'name': t('input_methods.upload'), 'desc': t('input_methods.upload_desc_audio')},
+            {'icon': '🎤', 'name': t('input_methods.record'), 'desc': t('input_methods.record_desc')},
+            {'icon': '📁', 'name': t('input_methods.folder'), 'desc': t('input_methods.folder_desc')},
         ]
 
     cards_html = '<div style="display: flex; gap: 12px; margin-bottom: 20px;">'

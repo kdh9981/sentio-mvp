@@ -9,11 +9,19 @@ Upgrades from baseline:
 """
 
 import os
-import cv2
 import numpy as np
 import yaml
 import logging
 from pathlib import Path
+
+# OpenCV import with graceful fallback
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None
+    print("Warning: opencv-python not installed. Run: pip install opencv-python-headless")
 
 # Optional imports with fallback
 try:
@@ -90,6 +98,10 @@ class ChickenVisionAnalyzer:
         Returns:
             tuple: (status, details) where status is 'HEALTHY', 'SICK', or None
         """
+        # Check if OpenCV is available
+        if not CV2_AVAILABLE:
+            return None, {"error": "OpenCV (cv2) not installed. Install with: pip install opencv-python-headless"}
+
         # Read image
         image = cv2.imread(str(image_path))
         if image is None:

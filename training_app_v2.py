@@ -53,6 +53,7 @@ from components.data_flow import (
     render_activity_log,
     add_activity
 )
+from components.i18n import t, init_language, render_language_toggle
 
 # Optional: clipboard paste support
 try:
@@ -97,11 +98,15 @@ def init_session_state():
         'activity_log': [],
         'current_stage': 'input',  # For pipeline visualization
         'is_analyzing': False,  # For AI loading spinner
+        'language': 'en',  # Language setting for i18n
     }
 
     for key, default_value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = default_value
+
+    # Initialize language system
+    init_language()
 
 
 def get_analyzer(modality):
@@ -138,13 +143,13 @@ def get_input_files(modality):
 
 def render_header():
     """Render the main observatory header"""
-    st.markdown("""
+    st.markdown(f"""
     <div style="text-align: center; margin-bottom: 1rem;">
         <h1 class="observatory-header">
-            Sentio
+            {t('header.title')}
         </h1>
         <p class="observatory-subtitle">
-            Chicken Health Observatory · Human-in-the-Loop Training
+            {t('header.subtitle')}
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -152,25 +157,29 @@ def render_header():
 
 def render_left_panel():
     """Render the left navigation panel with mode selection and stats"""
-    st.markdown("""
+    # Language toggle at the very top
+    render_language_toggle(st)
+    st.markdown("---")
+
+    st.markdown(f"""
     <div style="font-family: var(--font-display); font-size: 1rem; font-weight: 600;
                 color: var(--text-primary); margin-bottom: 1rem;">
-        Control Panel
+        {t('control_panel.title')}
     </div>
     """, unsafe_allow_html=True)
 
     # Mode selection
-    st.markdown("##### Mode")
+    st.markdown(f"##### {t('control_panel.mode')}")
     mode = st.radio(
         "Operation Mode",
-        options=['Analyze New', 'Review Staged'],
+        options=[t('control_panel.mode_analyze'), t('control_panel.mode_review')],
         index=0 if st.session_state.mode == 'analyze' else 1,
         help=get_tooltip('mode_review') if st.session_state.mode == 'review' else get_tooltip('mode_analyze'),
         label_visibility="collapsed"
     )
     # Detect mode change to reset stage appropriately
     old_mode = st.session_state.mode
-    new_mode = 'analyze' if mode == 'Analyze New' else 'review'
+    new_mode = 'analyze' if mode == t('control_panel.mode_analyze') else 'review'
 
     if old_mode != new_mode:
         # Mode changed - reset stage to appropriate starting point
@@ -186,32 +195,33 @@ def render_left_panel():
     st.markdown("---")
 
     # Modality selection
-    st.markdown("##### Modality")
+    st.markdown(f"##### {t('control_panel.modality')}")
     modality = st.radio(
         "Input Type",
-        options=['Vision', 'Audio'],
+        options=[t('control_panel.modality_vision'), t('control_panel.modality_audio')],
         index=0 if st.session_state.selected_modality == 'vision' else 1,
         help=get_tooltip('modality_vision') if st.session_state.selected_modality == 'vision' else get_tooltip('modality_audio'),
         label_visibility="collapsed"
     )
-    st.session_state.selected_modality = modality.lower()
+    # Map translated labels back to internal values
+    st.session_state.selected_modality = 'vision' if modality == t('control_panel.modality_vision') else 'audio'
 
     st.markdown("---")
 
     # Statistics
-    st.markdown("##### Pipeline Stats")
+    st.markdown(f"##### {t('control_panel.pipeline_stats')}")
     stats = get_statistics()
 
     col1, col2 = st.columns(2)
     with col1:
         st.metric(
-            "Staged",
+            t('stats.staged'),
             stats['total_staged'],
             help=get_tooltip('stat_total_staged')
         )
     with col2:
         st.metric(
-            "Pending",
+            t('stats.pending'),
             stats['pending_review'],
             help=get_tooltip('stat_pending')
         )
@@ -219,14 +229,14 @@ def render_left_panel():
     col3, col4 = st.columns(2)
     with col3:
         st.metric(
-            "Validated",
+            t('stats.validated'),
             stats['validated'],
             help=get_tooltip('stat_validated')
         )
     with col4:
         accuracy_display = f"{stats['accuracy']:.0%}"
         st.metric(
-            "Accuracy",
+            t('stats.accuracy'),
             accuracy_display,
             help=get_tooltip('accuracy')
         )
@@ -234,38 +244,38 @@ def render_left_panel():
     # Session accuracy
     if st.session_state.feedback_history:
         st.markdown("---")
-        st.markdown("##### This Session")
+        st.markdown(f"##### {t('control_panel.this_session')}")
         session_correct = sum(1 for f in st.session_state.feedback_history if f['agrees'])
         session_total = len(st.session_state.feedback_history)
         st.metric(
-            "Session Score",
+            t('stats.session_score'),
             f"{session_correct}/{session_total}",
             help=get_tooltip('stat_session_accuracy')
         )
 
     # Reference database status
     st.markdown("---")
-    st.markdown("##### Reference Learning")
+    st.markdown(f"##### {t('control_panel.reference_learning')}")
     ref_db = get_reference_database()
     ref_stats = ref_db.get_statistics()
 
     col_h, col_s = st.columns(2)
     with col_h:
         st.metric(
-            "Healthy",
+            t('stats.healthy'),
             ref_stats['healthy_samples'],
-            help="Verified healthy samples in reference database"
+            help=get_tooltip('reference_healthy')
         )
     with col_s:
         st.metric(
-            "Sick",
+            t('stats.sick'),
             ref_stats['sick_samples'],
-            help="Verified sick samples in reference database"
+            help=get_tooltip('reference_sick')
         )
 
     # Status indicator
     if ref_stats['is_active']:
-        st.success(f"Active", icon="✓")
+        st.success(t('stats.active'), icon="✓")
     else:
         st.info(ref_stats['status_message'], icon="ℹ️")
 
@@ -324,7 +334,7 @@ def render_right_panel():
     # Threshold application button
     if suggested and samples >= 10 and abs(suggested - current) > 0.01:
         if st.button(
-            f"Apply {suggested:.2f} Threshold",
+            t('buttons.apply_threshold', threshold=f"{suggested:.2f}"),
             type="primary",
             help=get_tooltip('apply_threshold'),
             use_container_width=True
@@ -333,10 +343,10 @@ def render_right_panel():
                 add_activity(
                     st.session_state,
                     '',
-                    f"Threshold updated to {suggested:.2f}",
-                    f"{modality.title()} detection"
+                    t('messages.threshold_updated', threshold=f"{suggested:.2f}"),
+                    t('activity.detection', modality=modality.title())
                 )
-                st.success("Threshold applied!")
+                st.success(t('messages.threshold_applied'))
                 st.rerun()
 
 
@@ -351,13 +361,11 @@ def render_review_mode():
     st.session_state.pending_items = pending
 
     if not pending:
-        st.info(
-            f"📂 No {modality} items pending review. "
-            f"Switch to 'Analyze New' mode to process files."
-        )
+        modality_display = t('control_panel.modality_vision') if modality == 'vision' else t('control_panel.modality_audio')
+        st.info(t('messages.no_pending', modality=modality_display))
 
         # Show how it works
-        with st.expander("ℹ️ Review Mode"):
+        with st.expander(f"ℹ️ {t('expanders.review_mode')}"):
             section = get_how_it_works('data_flow')
             st.markdown(section['content'])
         return
@@ -375,7 +383,7 @@ def render_review_mode():
 
     # Progress bar
     progress = (idx + 1) / len(pending)
-    st.progress(progress, text=f"Reviewing {idx + 1} of {len(pending)}")
+    st.progress(progress, text=t('messages.reviewing', current=idx + 1, total=len(pending)))
 
     # Two-column layout for content
     col_content, col_prediction = st.columns([2, 1])
@@ -395,7 +403,7 @@ def render_review_mode():
                     use_container_width=True
                 )
             else:
-                st.error(f"File not found: {file_path}")
+                st.error(t('messages.file_not_found', path=str(file_path)))
         else:
             # Audio display
             if file_path.exists():
@@ -411,7 +419,7 @@ def render_review_mode():
                     if fig:
                         st.pyplot(fig)
             else:
-                st.error(f"File not found: {file_path}")
+                st.error(t('messages.file_not_found', path=str(file_path)))
 
     with col_prediction:
         # AI Prediction card
@@ -419,7 +427,7 @@ def render_review_mode():
         confidence = float(item['confidence'])
 
         # Prediction display
-        st.markdown("##### AI Prediction")
+        st.markdown(f"##### {t('analysis.ai_prediction')}")
 
         if prediction in ('HEALTHY', 'NORMAL'):
             st.markdown(
@@ -432,18 +440,18 @@ def render_review_mode():
                 unsafe_allow_html=True
             )
 
-        st.metric("Confidence", f"{confidence:.1%}", help=get_tooltip('confidence'))
+        st.metric(t('analysis.confidence'), f"{confidence:.1%}", help=get_tooltip('confidence'))
 
         # Key features
-        st.markdown("##### Key Features")
+        st.markdown(f"##### {t('analysis.key_features')}")
         features = item.get('features', {})
         if isinstance(features, dict):
             if modality == 'vision':
                 health_score = features.get('health_score', 'N/A')
                 if isinstance(health_score, (int, float)):
-                    st.metric("Health Score", f"{health_score:.2f}", help=get_tooltip('health_score'))
+                    st.metric(t('analysis.health_score'), f"{health_score:.2f}", help=get_tooltip('health_score'))
                 else:
-                    st.write(f"Health Score: {health_score}")
+                    st.write(f"{t('analysis.health_score')}: {health_score}")
 
                 # Show reference adjustment if used
                 ref_details = features.get('reference_details', {})
@@ -457,27 +465,27 @@ def render_review_mode():
             else:
                 distress_score = features.get('distress_score', 'N/A')
                 if isinstance(distress_score, (int, float)):
-                    st.metric("Distress Score", f"{distress_score:.2f}", help=get_tooltip('distress_score'))
+                    st.metric(t('analysis.distress_score'), f"{distress_score:.2f}", help=get_tooltip('distress_score'))
                 else:
-                    st.write(f"Distress Score: {distress_score}")
+                    st.write(f"{t('analysis.distress_score')}: {distress_score}")
 
                 pitch = features.get('pitch_mean', 0)
                 volume = features.get('volume_mean', 0)
                 call_rate = features.get('call_rate', 0)
-                st.write(f"🎵 Pitch: {pitch:.0f} Hz")
-                st.write(f"📢 Volume: {volume:.4f}")
-                st.write(f"📊 Call Rate: {call_rate:.1f}/sec")
+                st.write(t('audio.pitch', value=f"{pitch:.0f}"))
+                st.write(t('audio.volume', value=f"{volume:.4f}"))
+                st.write(t('audio.call_rate', value=f"{call_rate:.1f}"))
 
         st.markdown("---")
 
         # Feedback buttons
-        st.markdown("##### Your Verdict")
+        st.markdown(f"##### {t('analysis.your_verdict')}")
 
         col_yes, col_no = st.columns(2)
 
         with col_yes:
             if st.button(
-                "✓ Correct",
+                t('buttons.correct'),
                 type="primary",
                 key="btn_correct",
                 help=get_tooltip('correct_button'),
@@ -487,7 +495,7 @@ def render_review_mode():
 
         with col_no:
             if st.button(
-                "✗ Wrong",
+                t('buttons.incorrect'),
                 type="secondary",
                 key="btn_incorrect",
                 help=get_tooltip('incorrect_button'),
@@ -497,13 +505,13 @@ def render_review_mode():
 
         # Skip button
         if st.button(
-            "Skip",
+            t('buttons.skip'),
             key="btn_skip",
             help=get_tooltip('skip_button'),
             use_container_width=True
         ):
             st.session_state.current_index = (idx + 1) % len(pending)
-            add_activity(st.session_state, '', f"Skipped {item['original_file']}")
+            add_activity(st.session_state, '', t('activity.skipped', filename=item['original_file']))
             st.rerun()
 
 
@@ -520,15 +528,15 @@ def render_analyze_mode():
     # Input method tabs
     if modality == 'vision':
         tab_upload, tab_paste, tab_folder = st.tabs([
-            "📤 Upload Image",
-            "📋 Paste Clipboard",
-            "📁 Browse Folder"
+            t('input.upload_image'),
+            t('input.paste_clipboard'),
+            t('input.browse_folder')
         ])
     else:
         tab_upload, tab_record, tab_folder = st.tabs([
-            "📤 Upload Audio",
-            "🎤 Record Microphone",
-            "📁 Browse Folder"
+            t('input.upload_audio'),
+            t('input.record_mic'),
+            t('input.browse_folder')
         ])
 
     selected_file = None
@@ -540,7 +548,7 @@ def render_analyze_mode():
         upload_types = [ext.lstrip('.') for ext in extensions]
 
         uploaded_file = st.file_uploader(
-            f"Drop {'image' if modality == 'vision' else 'audio'} file here",
+            t('input.drop_image') if modality == 'vision' else t('input.drop_audio'),
             type=upload_types,
             key=f"upload_{modality}",
             help=get_tooltip('input_upload')
@@ -551,16 +559,16 @@ def render_analyze_mode():
             if file_path and detected_modality == modality:
                 selected_file = file_path
                 input_source = 'upload'
-                st.success(f"Loaded: {uploaded_file.name}")
-                add_activity(st.session_state, '', f"Uploaded {uploaded_file.name}")
+                st.success(t('messages.loaded', filename=uploaded_file.name))
+                add_activity(st.session_state, '', t('messages.uploaded', filename=uploaded_file.name))
 
     # Tab 2: Modality-specific input
     if modality == 'vision':
         with tab_paste:
             if PASTE_AVAILABLE:
-                st.info("Click below, then paste an image (Cmd+V / Ctrl+V)")
+                st.info(t('input.paste_info'))
                 paste_result = paste_image_button(
-                    label="📋 Paste Image",
+                    label=t('input.paste_button'),
                     key="paste_image"
                 )
                 if paste_result.image_data is not None:
@@ -572,17 +580,15 @@ def render_analyze_mode():
                         if file_path:
                             selected_file = file_path
                             input_source = 'paste'
-                            st.success("Image pasted!")
-                            add_activity(st.session_state, '', "Pasted image from clipboard")
+                            st.success(t('messages.image_pasted'))
+                            add_activity(st.session_state, '', t('messages.pasted_clipboard'))
             else:
-                st.warning(
-                    "Clipboard paste requires: `pip install streamlit-paste-button`"
-                )
+                st.warning(t('messages.paste_requires'))
     else:
         with tab_record:
-            st.info("Click to start recording, click again to stop.")
+            st.info(t('input.record_info'))
             audio_bytes = st.audio_input(
-                "Record chicken sounds",
+                t('input.record_label'),
                 key="mic_recording",
                 help=get_tooltip('input_record')
             )
@@ -591,15 +597,15 @@ def render_analyze_mode():
                 if file_path:
                     selected_file = file_path
                     input_source = 'recording'
-                    st.success("Recording saved!")
-                    add_activity(st.session_state, '', "Recorded audio")
+                    st.success(t('messages.recording_saved'))
+                    add_activity(st.session_state, '', t('messages.recorded_audio'))
 
     # Tab 3: Browse folder
     with tab_folder:
         files = get_input_files(modality)
         if files:
             folder_file = st.selectbox(
-                "Select a file to analyze",
+                t('input.select_file'),
                 options=files,
                 format_func=lambda x: x.name,
                 key=f"folder_{modality}",
@@ -611,7 +617,8 @@ def render_analyze_mode():
         else:
             config = get_config()
             folder = config['paths']['input_images'] if modality == 'vision' else config['paths']['input_sounds']
-            st.info(f"No files in '{folder}'. Use upload or {'paste' if modality == 'vision' else 'record'} instead.")
+            method = t('input_methods.paste') if modality == 'vision' else t('input_methods.record')
+            st.info(t('messages.no_files_folder', folder=folder, method=method))
 
     # Update session state with current input
     if selected_file is not None:
@@ -625,7 +632,7 @@ def render_analyze_mode():
 
         # Check if file still exists (temp files may be deleted between sessions)
         if not Path(selected_file).exists():
-            st.warning("Previously selected file no longer exists. Please select a new file.")
+            st.warning(t('messages.file_missing'))
             st.session_state.current_input_file = None
             st.session_state.current_input_source = None
             st.session_state.last_analysis = None
@@ -642,7 +649,7 @@ def render_analyze_mode():
 
             with col_actions:
                 if st.button(
-                    "🔍 Analyze",
+                    t('buttons.analyze'),
                     type="primary",
                     key="btn_analyze",
                     help=get_tooltip('analyze_button'),
@@ -652,7 +659,7 @@ def render_analyze_mode():
                     st.session_state.current_stage = 'ai'
                     st.session_state.is_analyzing = True
 
-                    with st.spinner("AI analyzing..."):
+                    with st.spinner(t('messages.analyzing')):
                         analyzer = get_analyzer(modality)
                         status, details = analyzer.analyze(selected_file)
 
@@ -670,14 +677,14 @@ def render_analyze_mode():
                             add_activity(
                                 st.session_state,
                                 '',
-                                f"Analyzed {Path(selected_file).name}",
-                                f"Result: {status}"
+                                t('activity.analyzed', filename=Path(selected_file).name),
+                                t('activity.result', status=status)
                             )
                             st.rerun()
                         else:
                             st.session_state.current_stage = 'input'
-                            st.error(f"Analysis failed: {details.get('error', 'Unknown error')}")
-                            add_activity(st.session_state, '', f"Analysis failed", str(details.get('error', '')))
+                            st.error(t('messages.analysis_failed', error=details.get('error', 'Unknown error')))
+                            add_activity(st.session_state, '', t('messages.analysis_failed', error=''), str(details.get('error', '')))
 
             # Display analysis results
             if st.session_state.last_analysis:
@@ -685,7 +692,7 @@ def render_analyze_mode():
 
                 if str(analysis['file']) == str(st.session_state.current_input_file):
                     st.markdown("---")
-                    st.markdown("### Analysis Results")
+                    st.markdown(f"### {t('analysis.results')}")
 
                     status = analysis['status']
                     details = analysis['details']
@@ -710,7 +717,7 @@ def render_analyze_mode():
                         # Score metric
                         if modality == 'vision':
                             score = details.get('health_score', 0)
-                            st.metric("Health Score", f"{score:.2f}", help=get_tooltip('health_score'))
+                            st.metric(t('analysis.health_score'), f"{score:.2f}", help=get_tooltip('health_score'))
 
                             # Show reference comparison details
                             ref_details = details.get('reference_details', {})
@@ -724,7 +731,7 @@ def render_analyze_mode():
                                 # Show nearest neighbors in expander
                                 neighbors = ref_details.get('k_neighbors', [])
                                 if neighbors:
-                                    with st.expander("Similar verified images"):
+                                    with st.expander(t('analysis.similar_images')):
                                         for n in neighbors[:3]:
                                             icon = "✓" if n['class'] == 'HEALTHY' else "✗"
                                             st.caption(
@@ -738,7 +745,7 @@ def render_analyze_mode():
                                     st.caption(f"ℹ️ {reason}")
                         else:
                             score = details.get('distress_score', 0)
-                            st.metric("Distress Score", f"{score:.2f}", help=get_tooltip('distress_score'))
+                            st.metric(t('analysis.distress_score'), f"{score:.2f}", help=get_tooltip('distress_score'))
 
                     # Audio visualization
                     if modality == 'audio' and MATPLOTLIB_AVAILABLE:
@@ -752,7 +759,7 @@ def render_analyze_mode():
 
                     with col_stage:
                         if st.button(
-                            "📥 Stage for Review",
+                            t('buttons.stage'),
                             type="primary",
                             key="btn_stage",
                             help=get_tooltip('stage_button'),
@@ -769,10 +776,10 @@ def render_analyze_mode():
                             add_activity(
                                 st.session_state,
                                 '',
-                                f"Staged {Path(selected_file).name}",
-                                f"→ Data_Bank/Staging/"
+                                t('activity.staged', filename=Path(selected_file).name),
+                                t('activity.staged_dest')
                             )
-                            st.success("Staged! Switch to 'Review Staged' mode to validate.")
+                            st.success(t('messages.staged_success'))
 
                             # Clear current input after staging
                             st.session_state.current_input_file = None
@@ -781,11 +788,11 @@ def render_analyze_mode():
 
                     with col_skip:
                         if st.button(
-                            "⏭️ Skip",
+                            t('buttons.skip_icon'),
                             key="btn_skip_analyze",
                             use_container_width=True
                         ):
-                            add_activity(st.session_state, '', f"Skipped {Path(selected_file).name}")
+                            add_activity(st.session_state, '', t('activity.skipped', filename=Path(selected_file).name))
                             st.session_state.last_analysis = None
                             st.session_state.current_input_file = None
                             st.session_state.current_input_source = None
@@ -819,11 +826,14 @@ def handle_feedback(item, agrees):
         icon = ''
 
     # Log activity
-    action = "Confirmed" if agrees else "Corrected"
+    if agrees:
+        activity_text = t('activity.confirmed', prediction=prediction, filename=item['original_file'][:20])
+    else:
+        activity_text = t('activity.corrected', prediction=prediction, filename=item['original_file'][:20])
     add_activity(
         st.session_state,
         icon,
-        f"{action} {prediction} ({item['original_file'][:20]}...)",
+        activity_text,
         f"→ {destination}"
     )
 
@@ -906,19 +916,19 @@ def main():
         st.markdown("</div>", unsafe_allow_html=True)
 
         # How it works expanders (titles shortened to prevent icon overlap)
-        with st.expander("👁️ Vision Analysis"):
+        with st.expander(t('expanders.vision_analysis')):
             section = get_how_it_works('vision_analysis')
             st.markdown(section['content'])
 
-        with st.expander("🔊 Audio Analysis"):
+        with st.expander(t('expanders.audio_analysis')):
             section = get_how_it_works('audio_analysis')
             st.markdown(section['content'])
 
-        with st.expander("🧠 Reference Learning"):
+        with st.expander(t('expanders.reference_learning')):
             section = get_how_it_works('reference_learning')
             st.markdown(section['content'])
 
-        with st.expander("⚙️ Threshold Tuning"):
+        with st.expander(t('expanders.threshold_tuning')):
             section = get_how_it_works('threshold_tuning')
             st.markdown(section['content'])
 
