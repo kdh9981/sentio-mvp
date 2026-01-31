@@ -73,13 +73,17 @@ class ChickenVisionAnalyzer:
         # Initialize pose detector
         self.pose_detector = None
         if MEDIAPIPE_AVAILABLE and self.vision_config['use_pose_estimation']:
-            mp_pose = mp.solutions.pose
-            self.pose_detector = mp_pose.Pose(
-                static_image_mode=True,
-                min_detection_confidence=0.5,
-                model_complexity=1  # 0=lite, 1=full, 2=heavy
-            )
-            self.logger.info("Initialized MediaPipe pose detector")
+            try:
+                mp_pose = mp.solutions.pose
+                self.pose_detector = mp_pose.Pose(
+                    static_image_mode=True,
+                    min_detection_confidence=0.5,
+                    model_complexity=1  # 0=lite, 1=full, 2=heavy
+                )
+                self.logger.info("Initialized MediaPipe pose detector")
+            except (AttributeError, Exception) as e:
+                self.logger.warning(f"MediaPipe pose initialization failed: {e}")
+                self.pose_detector = None
 
         # Initialize reference database for similarity-based classification
         self.reference_db = get_reference_database()
