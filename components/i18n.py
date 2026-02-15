@@ -40,6 +40,16 @@ TRANSLATIONS = {
             'reference_learning': 'Reference Learning',
         },
 
+        # === REFERENCE STATUS ===
+        'reference': {
+            'disabled': 'Reference comparison disabled',
+            'active': 'Active: Using {count} verified samples',
+            'need_healthy': '{count} more healthy',
+            'need_sick': '{count} more sick',
+            'need_both': '{healthy} more healthy and {sick} more sick',
+            'to_activate': 'Need {detail} samples to activate',
+        },
+
         # === STATS ===
         'stats': {
             'staged': 'Staged',
@@ -246,6 +256,16 @@ TRANSLATIONS = {
             'reference_learning': '참조 학습',
         },
 
+        # === REFERENCE STATUS ===
+        'reference': {
+            'disabled': '참조 비교 비활성화됨',
+            'active': '활성화: 검증된 샘플 {count}개 사용 중',
+            'need_healthy': '건강 샘플 {count}개 더 필요',
+            'need_sick': '아픈 샘플 {count}개 더 필요',
+            'need_both': '건강 샘플 {healthy}개, 아픈 샘플 {sick}개 더 필요',
+            'to_activate': '활성화하려면 {detail}',
+        },
+
         # === STATS ===
         'stats': {
             'staged': '대기 중',
@@ -435,7 +455,7 @@ TRANSLATIONS = {
 def init_language():
     """Initialize language in session state if not already set."""
     if 'language' not in st.session_state:
-        st.session_state.language = 'en'
+        st.session_state.language = 'ko'
 
 
 def get_current_language() -> str:

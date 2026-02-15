@@ -54,7 +54,7 @@ from components.data_flow import (
     render_activity_log,
     add_activity
 )
-from components.i18n import t, init_language, render_language_toggle
+from components.i18n import t, init_language, get_current_language, render_language_toggle
 
 # Optional: clipboard paste support
 try:
@@ -278,7 +278,16 @@ def render_left_panel():
     if ref_stats['is_active']:
         st.success(t('stats.active'), icon="✓")
     else:
-        st.info(ref_stats['status_message'], icon="ℹ️")
+        # Build translated status message from raw stats
+        needed_healthy = max(0, ref_stats['min_required'] - ref_stats['healthy_samples'])
+        needed_sick = max(0, ref_stats['min_required'] - ref_stats['sick_samples'])
+        if needed_healthy > 0 and needed_sick > 0:
+            detail = t('reference.need_both', healthy=needed_healthy, sick=needed_sick)
+        elif needed_healthy > 0:
+            detail = t('reference.need_healthy', count=needed_healthy)
+        else:
+            detail = t('reference.need_sick', count=needed_sick)
+        st.info(t('reference.to_activate', detail=detail), icon="ℹ️")
 
 
 def render_right_panel():
@@ -971,6 +980,34 @@ def main():
 
     # Apply dark theme
     apply_theme(st)
+
+    # Override Streamlit built-in English strings when Korean is active
+    if get_current_language() == 'ko':
+        st.markdown("""<style>
+        /* Hide Streamlit's English file uploader text and replace with Korean */
+        [data-testid="stFileUploaderDropzone"] span:first-of-type {
+            visibility: hidden; position: relative; height: 1.2em; display: inline-block;
+        }
+        [data-testid="stFileUploaderDropzone"] span:first-of-type::after {
+            content: "파일을 여기에 끌어다 놓으세요"; visibility: visible;
+            position: absolute; left: 0; top: 0; white-space: nowrap;
+        }
+        [data-testid="stFileUploaderDropzone"] small {
+            visibility: hidden; position: relative; height: 1.2em; display: inline-block;
+        }
+        [data-testid="stFileUploaderDropzone"] small::after {
+            content: "파일당 200MB 제한"; visibility: visible;
+            position: absolute; left: 0; top: 0; white-space: nowrap;
+        }
+        [data-testid="stFileUploaderDropzone"] button[kind="secondary"] {
+            visibility: hidden; position: relative;
+        }
+        [data-testid="stFileUploaderDropzone"] button[kind="secondary"]::after {
+            content: "파일 찾아보기"; visibility: visible;
+            position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+            white-space: nowrap;
+        }
+        </style>""", unsafe_allow_html=True)
 
     # Header
     render_header()
