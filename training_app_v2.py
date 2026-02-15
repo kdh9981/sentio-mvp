@@ -276,7 +276,7 @@ def render_left_panel():
 
     # Status indicator
     if ref_stats['is_active']:
-        st.success(t('stats.active'), icon="✓")
+        st.success(t('stats.active'), icon="✅")
     else:
         # Build translated status message from raw stats
         needed_healthy = max(0, ref_stats['min_required'] - ref_stats['healthy_samples'])
