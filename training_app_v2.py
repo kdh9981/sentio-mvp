@@ -99,7 +99,7 @@ def init_session_state():
         'activity_log': [],
         'current_stage': 'input',  # For pipeline visualization
         'is_analyzing': False,  # For AI loading spinner
-        'language': 'en',  # Language setting for i18n
+        'language': 'ko',  # Language setting for i18n
     }
 
     for key, default_value in defaults.items():
@@ -981,31 +981,12 @@ def main():
     # Apply dark theme
     apply_theme(st)
 
-    # Override Streamlit built-in English strings when Korean is active
+    # When Korean: hide Streamlit's built-in English text in file uploader
     if get_current_language() == 'ko':
         st.markdown("""<style>
-        /* Hide Streamlit's English file uploader text and replace with Korean */
-        [data-testid="stFileUploaderDropzone"] span:first-of-type {
-            visibility: hidden; position: relative; height: 1.2em; display: inline-block;
-        }
-        [data-testid="stFileUploaderDropzone"] span:first-of-type::after {
-            content: "파일을 여기에 끌어다 놓으세요"; visibility: visible;
-            position: absolute; left: 0; top: 0; white-space: nowrap;
-        }
-        [data-testid="stFileUploaderDropzone"] small {
-            visibility: hidden; position: relative; height: 1.2em; display: inline-block;
-        }
-        [data-testid="stFileUploaderDropzone"] small::after {
-            content: "파일당 200MB 제한"; visibility: visible;
-            position: absolute; left: 0; top: 0; white-space: nowrap;
-        }
-        [data-testid="stFileUploaderDropzone"] button[kind="secondary"] {
-            visibility: hidden; position: relative;
-        }
-        [data-testid="stFileUploaderDropzone"] button[kind="secondary"]::after {
-            content: "파일 찾아보기"; visibility: visible;
-            position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-            white-space: nowrap;
+        [data-testid="stFileUploaderDropzoneInstructions"] > div > span,
+        [data-testid="stFileUploaderDropzoneInstructions"] small {
+            display: none;
         }
         </style>""", unsafe_allow_html=True)
 
@@ -1034,8 +1015,7 @@ def main():
         # Main content area
         st.markdown("""
         <div style="background: var(--bg-surface); border-radius: 16px;
-                    padding: 1.5rem; border: 1px solid var(--border-default);
-                    min-height: 400px;">
+                    padding: 1.5rem; border: 1px solid var(--border-default);">
         """, unsafe_allow_html=True)
 
         if st.session_state.mode == 'review':
@@ -1045,22 +1025,6 @@ def main():
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # How it works expanders (titles shortened to prevent icon overlap)
-        with st.expander(t('expanders.vision_analysis')):
-            section = get_how_it_works('vision_analysis')
-            st.markdown(section['content'])
-
-        with st.expander(t('expanders.audio_analysis')):
-            section = get_how_it_works('audio_analysis')
-            st.markdown(section['content'])
-
-        with st.expander(t('expanders.reference_learning')):
-            section = get_how_it_works('reference_learning')
-            st.markdown(section['content'])
-
-        with st.expander(t('expanders.threshold_tuning')):
-            section = get_how_it_works('threshold_tuning')
-            st.markdown(section['content'])
 
     with col_right:
         render_right_panel()
