@@ -712,7 +712,7 @@ def render_analyze_mode():
                                 'details': details,
                                 'modality': modality
                             }
-                            st.session_state.current_stage = 'staging'
+                            st.session_state.current_stage = 'review'
                             add_activity(
                                 st.session_state,
                                 '',
@@ -791,52 +791,105 @@ def render_analyze_mode():
                     if fig:
                         st.pyplot(fig)
 
-                # Action buttons
+                # Your Verdict — Correct / Incorrect
                 st.markdown("---")
-                col_stage, col_skip = st.columns(2)
+                st.markdown(f"### {t('analysis.your_verdict')}")
+                col_correct, col_incorrect = st.columns(2)
 
-                with col_stage:
+                with col_correct:
                     if st.button(
-                        t('buttons.stage'),
+                        t('buttons.correct'),
                         type="primary",
-                        key="btn_stage",
-                        help=get_tooltip('stage_button'),
+                        key="btn_correct_analyze",
                         use_container_width=True
                     ):
-                        stage_classification(
-                            file_path=selected_file,
-                            modality=modality,
-                            ai_classification=status,
-                            confidence=score,
-                            features=details
-                        )
-                        st.session_state.current_stage = 'staging'
-                        add_activity(
-                            st.session_state,
-                            '',
-                            t('activity.staged', filename=Path(selected_file).name),
-                            t('activity.staged_dest')
-                        )
-                        st.success(t('messages.staged_success'))
+                        handle_analyze_feedback(analysis, agrees=True)
 
-                        # Clear current input after staging
-                        st.session_state.current_input_file = None
-                        st.session_state.current_input_source = None
-                        st.session_state.last_analysis = None
-
-                        st.rerun()
-
-                with col_skip:
+                with col_incorrect:
                     if st.button(
-                        t('buttons.skip_icon'),
-                        key="btn_skip_analyze",
+                        t('buttons.incorrect'),
+                        key="btn_incorrect_analyze",
                         use_container_width=True
                     ):
-                        add_activity(st.session_state, '', t('activity.skipped', filename=Path(selected_file).name))
-                        st.session_state.last_analysis = None
-                        st.session_state.current_input_file = None
-                        st.session_state.current_input_source = None
-                        st.rerun()
+                        handle_analyze_feedback(analysis, agrees=False)
+
+
+def handle_analyze_feedback(analysis, agrees):
+    """Handle direct Correct/Incorrect feedback after AI analysis.
+
+    Combines staging + finalization in one step so the user never
+    has to switch to Review mode for newly analyzed files.
+    """
+    file_path = analysis['file']
+    modality = analysis['modality']
+    status = analysis['status']
+    details = analysis['details']
+
+    if modality == 'vision':
+        score = details.get('health_score', 0.5) if isinstance(details, dict) else 0.5
+    else:
+        score = details.get('distress_score', 0.5) if isinstance(details, dict) else 0.5
+
+    # Stage the file (creates record + copies file)
+    record = stage_classification(
+        file_path=file_path,
+        modality=modality,
+        ai_classification=status,
+        confidence=score,
+        features=details
+    )
+
+    # Immediately finalize (moves file to verified folder, updates DB)
+    finalize_classification(
+        staged_file=record['staged_file'],
+        human_agrees=agrees
+    )
+
+    # Determine destination for activity log
+    suffix = "Images/" if modality == 'vision' else "Audio/"
+    if agrees:
+        if status in ('HEALTHY', 'NORMAL'):
+            destination = f"Verified_Healthy_{suffix}"
+        else:
+            destination = f"Verified_Sick_{suffix}"
+    else:
+        if status in ('HEALTHY', 'NORMAL'):
+            destination = f"Verified_Sick_{suffix}"
+        else:
+            destination = f"Verified_Healthy_{suffix}"
+
+    # Log activity
+    filename = Path(file_path).name
+    if agrees:
+        activity_text = t('activity.confirmed', prediction=status, filename=filename[:20])
+    else:
+        activity_text = t('activity.corrected', prediction=status, filename=filename[:20])
+    add_activity(st.session_state, '', activity_text, f"→ {destination}")
+
+    # Record for threshold tuning
+    tuner = st.session_state.tuner
+    tuner.record_feedback(
+        modality=modality,
+        score=score,
+        ai_prediction=status,
+        human_agrees=agrees
+    )
+
+    # Track in session
+    st.session_state.feedback_history.append({
+        'file': filename,
+        'agrees': agrees,
+        'prediction': status,
+        'timestamp': datetime.now().isoformat()
+    })
+
+    # Flash verified, then clear for next input
+    st.session_state.current_stage = 'verified'
+    st.session_state.current_input_file = None
+    st.session_state.current_input_source = None
+    st.session_state.last_analysis = None
+
+    st.rerun()
 
 
 def handle_feedback(item, agrees):

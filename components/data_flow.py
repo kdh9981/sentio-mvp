@@ -30,10 +30,13 @@ def render_data_flow_header(st, current_stage: str = 'input', is_loading: bool =
                       ('input', 'ai', 'staging', 'review', 'verified')
         is_loading: Whether AI analysis is in progress (shows spinner)
     """
+    # Backward compat: map removed 'staging' to 'review'
+    if current_stage == 'staging':
+        current_stage = 'review'
+
     stages = [
         {'id': 'input', 'icon': '📁', 'name': t('pipeline.input'), 'desc': t('pipeline.input_desc')},
         {'id': 'ai', 'icon': '🤖', 'name': t('pipeline.ai'), 'desc': t('pipeline.ai_desc')},
-        {'id': 'staging', 'icon': '📋', 'name': t('pipeline.staging'), 'desc': t('pipeline.staging_desc')},
         {'id': 'review', 'icon': '👁️', 'name': t('pipeline.review'), 'desc': t('pipeline.review_desc')},
         {'id': 'verified', 'icon': '✅', 'name': t('pipeline.verified'), 'desc': t('pipeline.verified_desc')},
     ]
@@ -42,7 +45,7 @@ def render_data_flow_header(st, current_stage: str = 'input', is_loading: bool =
     stage_html_parts = []
     for i, stage in enumerate(stages):
         # Determine state class
-        stage_order = ['input', 'ai', 'staging', 'review', 'verified']
+        stage_order = ['input', 'ai', 'review', 'verified']
         current_idx = stage_order.index(current_stage) if current_stage in stage_order else 0
         stage_idx = stage_order.index(stage['id'])
 
