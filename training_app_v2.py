@@ -100,6 +100,8 @@ def init_session_state():
         'current_stage': 'input',  # For pipeline visualization
         'is_analyzing': False,  # For AI loading spinner
         'language': 'ko',  # Language setting for i18n
+        'input_cycle': 0,  # Counter used in widget keys; incrementing creates fresh widgets
+        'last_completed': None,  # Stores completed cycle info for the report
     }
 
     for key, default_value in defaults.items():
@@ -566,6 +568,16 @@ def render_analyze_mode():
             t('input.browse_folder')
         ])
 
+    # Completion report from previous cycle
+    if st.session_state.last_completed:
+        c = st.session_state.last_completed
+        if c['agrees']:
+            st.success(t('report.confirmed', status=c['status'], file=c['file']), icon="✅")
+        else:
+            st.info(t('report.corrected', status=c['status'], file=c['file']), icon="🔄")
+        st.caption(t('report.destination', dest=c['destination']))
+        st.markdown("---")
+
     selected_file = None
     input_source = None
 
@@ -577,7 +589,7 @@ def render_analyze_mode():
         uploaded_file = st.file_uploader(
             t('input.drop_image') if modality == 'vision' else t('input.drop_audio'),
             type=upload_types,
-            key=f"upload_{modality}",
+            key=f"upload_{modality}_{st.session_state.input_cycle}",
             help=get_tooltip('input_upload')
         )
 
@@ -594,6 +606,7 @@ def render_analyze_mode():
                     selected_file = file_path
                     input_source = 'upload'
                     st.session_state.last_analysis = None
+                    st.session_state.last_completed = None
                     st.success(t('messages.loaded', filename=uploaded_file.name))
                     add_activity(st.session_state, '', t('messages.uploaded', filename=uploaded_file.name))
 
@@ -604,7 +617,7 @@ def render_analyze_mode():
                 st.info(t('input.paste_info'))
                 paste_result = paste_image_button(
                     label=t('input.paste_button'),
-                    key="paste_image"
+                    key=f"paste_image_{st.session_state.input_cycle}"
                 )
                 if paste_result.image_data is not None:
                     # Guard: don't re-save on rerun if we already have this input cached
@@ -620,6 +633,7 @@ def render_analyze_mode():
                             input_source = 'paste'
                             # Clear previous analysis when new image pasted
                             st.session_state.last_analysis = None
+                            st.session_state.last_completed = None
                             st.success(t('messages.image_pasted'))
                             add_activity(st.session_state, '', t('messages.pasted_clipboard'))
             else:
@@ -629,7 +643,7 @@ def render_analyze_mode():
             st.info(t('input.record_info'))
             audio_bytes = st.audio_input(
                 t('input.record_label'),
-                key="mic_recording",
+                key=f"mic_recording_{st.session_state.input_cycle}",
                 help=get_tooltip('input_record')
             )
             if audio_bytes is not None:
@@ -645,6 +659,7 @@ def render_analyze_mode():
                         selected_file = file_path
                         input_source = 'recording'
                         st.session_state.last_analysis = None
+                        st.session_state.last_completed = None
                         st.success(t('messages.recording_saved'))
                         add_activity(st.session_state, '', t('messages.recorded_audio'))
 
@@ -656,7 +671,7 @@ def render_analyze_mode():
                 t('input.select_file'),
                 options=files,
                 format_func=lambda x: x.name,
-                key=f"folder_{modality}",
+                key=f"folder_{modality}_{st.session_state.input_cycle}",
                 help=get_tooltip('input_folder')
             )
             if folder_file:
@@ -892,8 +907,21 @@ def handle_analyze_feedback(analysis, agrees):
         'timestamp': datetime.now().isoformat()
     })
 
-    # Flash verified, then clear for next input
-    st.session_state.current_stage = 'verified'
+    # Store completion report
+    st.session_state.last_completed = {
+        'file': Path(file_path).name,
+        'status': status,
+        'agrees': agrees,
+        'modality': modality,
+        'score': score,
+        'destination': destination,
+    }
+
+    # Bump cycle to reset widget keys (forces fresh file_uploader / paste widget)
+    st.session_state.input_cycle += 1
+
+    # Clear for next input
+    st.session_state.current_stage = 'input'
     st.session_state.current_input_file = None
     st.session_state.current_input_source = None
     st.session_state.last_analysis = None

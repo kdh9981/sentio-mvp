@@ -220,6 +220,13 @@ TRANSLATIONS = {
             'call_rate': '📊 Call Rate: {value}/sec',
         },
 
+        # === COMPLETION REPORT ===
+        'report': {
+            'confirmed': '✅ Confirmed {status} — {file} saved!',
+            'corrected': '🔄 Corrected {status} → opposite — {file} saved!',
+            'destination': 'Saved to {dest}',
+        },
+
         # === INPUT METHODS ===
         'input_methods': {
             'upload': 'Upload',
@@ -434,6 +441,13 @@ TRANSLATIONS = {
             'pitch': '🎵 음높이: {value} Hz',
             'volume': '📢 음량: {value}',
             'call_rate': '📊 울음 빈도: {value}/초',
+        },
+
+        # === COMPLETION REPORT ===
+        'report': {
+            'confirmed': '✅ {status} 확인 완료 — {file} 저장됨!',
+            'corrected': '🔄 {status} 수정 완료 — {file} 저장됨!',
+            'destination': '{dest}에 저장됨',
         },
 
         # === INPUT METHODS ===
