@@ -31,6 +31,7 @@ from data_pipeline import (
     get_statistics,
     get_config
 )
+from supabase_client import is_supabase_active, get_backend
 from threshold_tuner import ThresholdTuner
 from audio_viz import create_combined_figure, MATPLOTLIB_AVAILABLE
 from input_helpers import (
@@ -389,37 +390,54 @@ def render_review_mode():
     col_content, col_prediction = st.columns([2, 1])
 
     with col_content:
-        # Display the file
+        # Display the file - use signed URLs for Supabase, local paths otherwise
         config = get_config()
         project_root = Path(__file__).parent
         staging_folder = project_root / config['paths']['staging_folder']
         file_path = staging_folder / item['staged_file']
 
-        if modality == 'vision':
-            if file_path.exists():
-                st.image(
-                    str(file_path),
-                    caption=item['original_file'],
-                    use_container_width=True
-                )
+        if is_supabase_active():
+            storage_path = item.get('storage_path', f"staging/{item['staged_file']}")
+            backend = get_backend()
+            if modality == 'vision':
+                signed_url = backend.get_signed_url(storage_path)
+                if signed_url:
+                    st.image(signed_url, caption=item['original_file'],
+                             use_container_width=True)
+                else:
+                    st.error(t('messages.file_not_found', path=storage_path))
             else:
-                st.error(t('messages.file_not_found', path=str(file_path)))
+                try:
+                    audio_bytes = backend.download_file(storage_path)
+                    st.audio(audio_bytes)
+                except Exception:
+                    st.error(t('messages.file_not_found', path=storage_path))
         else:
-            # Audio display
-            if file_path.exists():
-                st.audio(str(file_path))
-
-                # Show visualization
-                if MATPLOTLIB_AVAILABLE:
-                    features = item.get('features', {})
-                    fig = create_combined_figure(
-                        file_path,
-                        features=features if isinstance(features, dict) else {}
+            if modality == 'vision':
+                if file_path.exists():
+                    st.image(
+                        str(file_path),
+                        caption=item['original_file'],
+                        use_container_width=True
                     )
-                    if fig:
-                        st.pyplot(fig)
+                else:
+                    st.error(t('messages.file_not_found', path=str(file_path)))
             else:
-                st.error(t('messages.file_not_found', path=str(file_path)))
+                # Audio display
+                if file_path.exists():
+                    st.audio(str(file_path))
+
+                    # Show visualization
+                    if MATPLOTLIB_AVAILABLE:
+                        features = item.get('features', {})
+                        fig = create_combined_figure(
+                            file_path,
+                            features=features if isinstance(features, dict) else {}
+                        )
+                        if fig:
+                            st.pyplot(fig)
+                else:
+                    st.error(t('messages.file_not_found', path=str(file_path)))
 
     with col_prediction:
         # AI Prediction card
@@ -555,12 +573,20 @@ def render_analyze_mode():
         )
 
         if uploaded_file is not None:
-            file_path, detected_modality = save_uploaded_file(uploaded_file)
-            if file_path and detected_modality == modality:
-                selected_file = file_path
+            # Guard: don't re-save on rerun if we already have this input cached
+            existing = st.session_state.current_input_file
+            if (existing is not None
+                    and st.session_state.current_input_source == 'upload'):
+                selected_file = existing
                 input_source = 'upload'
-                st.success(t('messages.loaded', filename=uploaded_file.name))
-                add_activity(st.session_state, '', t('messages.uploaded', filename=uploaded_file.name))
+            else:
+                file_path, detected_modality = save_uploaded_file(uploaded_file)
+                if file_path and detected_modality == modality:
+                    selected_file = file_path
+                    input_source = 'upload'
+                    st.session_state.last_analysis = None
+                    st.success(t('messages.loaded', filename=uploaded_file.name))
+                    add_activity(st.session_state, '', t('messages.uploaded', filename=uploaded_file.name))
 
     # Tab 2: Modality-specific input
     if modality == 'vision':
@@ -572,14 +598,21 @@ def render_analyze_mode():
                     key="paste_image"
                 )
                 if paste_result.image_data is not None:
-                    file_path, _ = save_pasted_image(paste_result.image_data)
-                    if file_path:
-                        selected_file = file_path
+                    # Guard: don't re-save on rerun if we already have this input cached
+                    existing = st.session_state.current_input_file
+                    if (existing is not None
+                            and st.session_state.current_input_source == 'paste'):
+                        selected_file = existing
                         input_source = 'paste'
-                        # Clear previous analysis when new image pasted
-                        st.session_state.last_analysis = None
-                        st.success(t('messages.image_pasted'))
-                        add_activity(st.session_state, '', t('messages.pasted_clipboard'))
+                    else:
+                        file_path, _ = save_pasted_image(paste_result.image_data)
+                        if file_path:
+                            selected_file = file_path
+                            input_source = 'paste'
+                            # Clear previous analysis when new image pasted
+                            st.session_state.last_analysis = None
+                            st.success(t('messages.image_pasted'))
+                            add_activity(st.session_state, '', t('messages.pasted_clipboard'))
             else:
                 st.warning(t('messages.paste_requires'))
     else:
@@ -591,12 +624,20 @@ def render_analyze_mode():
                 help=get_tooltip('input_record')
             )
             if audio_bytes is not None:
-                file_path, _ = save_recorded_audio(audio_bytes)
-                if file_path:
-                    selected_file = file_path
+                # Guard: don't re-save on rerun if we already have this input cached
+                existing = st.session_state.current_input_file
+                if (existing is not None
+                        and st.session_state.current_input_source == 'recording'):
+                    selected_file = existing
                     input_source = 'recording'
-                    st.success(t('messages.recording_saved'))
-                    add_activity(st.session_state, '', t('messages.recorded_audio'))
+                else:
+                    file_path, _ = save_recorded_audio(audio_bytes)
+                    if file_path:
+                        selected_file = file_path
+                        input_source = 'recording'
+                        st.session_state.last_analysis = None
+                        st.success(t('messages.recording_saved'))
+                        add_activity(st.session_state, '', t('messages.recorded_audio'))
 
     # Tab 3: Browse folder
     with tab_folder:
@@ -688,115 +729,114 @@ def render_analyze_mode():
             if st.session_state.last_analysis:
                 analysis = st.session_state.last_analysis
 
-                if str(analysis['file']) == str(st.session_state.current_input_file):
-                    st.markdown("---")
-                    st.markdown(f"### {t('analysis.results')}")
+                st.markdown("---")
+                st.markdown(f"### {t('analysis.results')}")
 
-                    status = analysis['status']
-                    details = analysis['details']
+                status = analysis['status']
+                details = analysis['details']
 
-                    # Two columns for results
-                    res_col1, res_col2 = st.columns([1, 1])
+                # Two columns for results
+                res_col1, res_col2 = st.columns([1, 1])
 
-                    with res_col1:
-                        # Prediction with styled display
-                        if status in ('HEALTHY', 'NORMAL'):
-                            st.markdown(
-                                f'<div class="prediction-healthy" style="font-size: 1.5rem;">{status}</div>',
-                                unsafe_allow_html=True
+                with res_col1:
+                    # Prediction with styled display
+                    if status in ('HEALTHY', 'NORMAL'):
+                        st.markdown(
+                            f'<div class="prediction-healthy" style="font-size: 1.5rem;">{status}</div>',
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        st.markdown(
+                            f'<div class="prediction-sick" style="font-size: 1.5rem;">{status}</div>',
+                            unsafe_allow_html=True
+                        )
+
+                with res_col2:
+                    # Score metric
+                    if modality == 'vision':
+                        score = details.get('health_score', 0)
+                        st.metric(t('analysis.health_score'), f"{score:.2f}", help=get_tooltip('health_score'))
+
+                        # Show reference comparison details
+                        ref_details = details.get('reference_details', {})
+                        if ref_details.get('reference_used'):
+                            ref_adj = details.get('reference_adjustment', 0)
+                            base_score = details.get('base_health_score', score)
+                            adj_sign = "+" if ref_adj >= 0 else ""
+                            st.caption(
+                                f"Base: {base_score:.2f} {adj_sign}{ref_adj:.2f} (reference)"
                             )
+                            # Show nearest neighbors in expander
+                            neighbors = ref_details.get('k_neighbors', [])
+                            if neighbors:
+                                with st.expander(t('analysis.similar_images')):
+                                    for n in neighbors[:3]:
+                                        icon = "✓" if n['class'] == 'HEALTHY' else "✗"
+                                        st.caption(
+                                            f"{icon} {n['file'][:25]}... "
+                                            f"({n['similarity']:.0%} similar, {n['class']})"
+                                        )
                         else:
-                            st.markdown(
-                                f'<div class="prediction-sick" style="font-size: 1.5rem;">{status}</div>',
-                                unsafe_allow_html=True
-                            )
+                            # Show why reference wasn't used
+                            reason = ref_details.get('reason', '')
+                            if reason:
+                                st.caption(f"ℹ️ {reason}")
+                    else:
+                        score = details.get('distress_score', 0)
+                        st.metric(t('analysis.distress_score'), f"{score:.2f}", help=get_tooltip('distress_score'))
 
-                    with res_col2:
-                        # Score metric
-                        if modality == 'vision':
-                            score = details.get('health_score', 0)
-                            st.metric(t('analysis.health_score'), f"{score:.2f}", help=get_tooltip('health_score'))
+                # Audio visualization
+                if modality == 'audio' and MATPLOTLIB_AVAILABLE:
+                    fig = create_combined_figure(selected_file, features=details)
+                    if fig:
+                        st.pyplot(fig)
 
-                            # Show reference comparison details
-                            ref_details = details.get('reference_details', {})
-                            if ref_details.get('reference_used'):
-                                ref_adj = details.get('reference_adjustment', 0)
-                                base_score = details.get('base_health_score', score)
-                                adj_sign = "+" if ref_adj >= 0 else ""
-                                st.caption(
-                                    f"Base: {base_score:.2f} {adj_sign}{ref_adj:.2f} (reference)"
-                                )
-                                # Show nearest neighbors in expander
-                                neighbors = ref_details.get('k_neighbors', [])
-                                if neighbors:
-                                    with st.expander(t('analysis.similar_images')):
-                                        for n in neighbors[:3]:
-                                            icon = "✓" if n['class'] == 'HEALTHY' else "✗"
-                                            st.caption(
-                                                f"{icon} {n['file'][:25]}... "
-                                                f"({n['similarity']:.0%} similar, {n['class']})"
-                                            )
-                            else:
-                                # Show why reference wasn't used
-                                reason = ref_details.get('reason', '')
-                                if reason:
-                                    st.caption(f"ℹ️ {reason}")
-                        else:
-                            score = details.get('distress_score', 0)
-                            st.metric(t('analysis.distress_score'), f"{score:.2f}", help=get_tooltip('distress_score'))
+                # Action buttons
+                st.markdown("---")
+                col_stage, col_skip = st.columns(2)
 
-                    # Audio visualization
-                    if modality == 'audio' and MATPLOTLIB_AVAILABLE:
-                        fig = create_combined_figure(selected_file, features=details)
-                        if fig:
-                            st.pyplot(fig)
+                with col_stage:
+                    if st.button(
+                        t('buttons.stage'),
+                        type="primary",
+                        key="btn_stage",
+                        help=get_tooltip('stage_button'),
+                        use_container_width=True
+                    ):
+                        stage_classification(
+                            file_path=selected_file,
+                            modality=modality,
+                            ai_classification=status,
+                            confidence=score,
+                            features=details
+                        )
+                        st.session_state.current_stage = 'staging'
+                        add_activity(
+                            st.session_state,
+                            '',
+                            t('activity.staged', filename=Path(selected_file).name),
+                            t('activity.staged_dest')
+                        )
+                        st.success(t('messages.staged_success'))
 
-                    # Action buttons
-                    st.markdown("---")
-                    col_stage, col_skip = st.columns(2)
+                        # Clear current input after staging
+                        st.session_state.current_input_file = None
+                        st.session_state.current_input_source = None
+                        st.session_state.last_analysis = None
 
-                    with col_stage:
-                        if st.button(
-                            t('buttons.stage'),
-                            type="primary",
-                            key="btn_stage",
-                            help=get_tooltip('stage_button'),
-                            use_container_width=True
-                        ):
-                            stage_classification(
-                                file_path=selected_file,
-                                modality=modality,
-                                ai_classification=status,
-                                confidence=score,
-                                features=details
-                            )
-                            st.session_state.current_stage = 'staging'
-                            add_activity(
-                                st.session_state,
-                                '',
-                                t('activity.staged', filename=Path(selected_file).name),
-                                t('activity.staged_dest')
-                            )
-                            st.success(t('messages.staged_success'))
+                        st.rerun()
 
-                            # Clear current input after staging
-                            st.session_state.current_input_file = None
-                            st.session_state.current_input_source = None
-                            st.session_state.last_analysis = None
-
-                            st.rerun()
-
-                    with col_skip:
-                        if st.button(
-                            t('buttons.skip_icon'),
-                            key="btn_skip_analyze",
-                            use_container_width=True
-                        ):
-                            add_activity(st.session_state, '', t('activity.skipped', filename=Path(selected_file).name))
-                            st.session_state.last_analysis = None
-                            st.session_state.current_input_file = None
-                            st.session_state.current_input_source = None
-                            st.rerun()
+                with col_skip:
+                    if st.button(
+                        t('buttons.skip_icon'),
+                        key="btn_skip_analyze",
+                        use_container_width=True
+                    ):
+                        add_activity(st.session_state, '', t('activity.skipped', filename=Path(selected_file).name))
+                        st.session_state.last_analysis = None
+                        st.session_state.current_input_file = None
+                        st.session_state.current_input_source = None
+                        st.rerun()
 
 
 def handle_feedback(item, agrees):

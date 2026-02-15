@@ -22,6 +22,8 @@ import logging
 
 import yaml
 
+from supabase_client import get_backend, is_supabase_active
+
 
 def load_config(config_path='config.yaml'):
     """Load configuration from YAML file"""
@@ -81,7 +83,34 @@ class ReferenceDatabase:
         self._load_database()
 
     def _load_database(self):
-        """Load reference features from disk"""
+        """Load reference features from Supabase or disk"""
+        if is_supabase_active():
+            try:
+                backend = get_backend()
+                healthy_rows = backend.get_reference_samples('healthy')
+                sick_rows = backend.get_reference_samples('sick')
+
+                self.healthy_features = [
+                    {'file': r['filename'], 'added': r.get('added_at', ''),
+                     'features': r['features'] if isinstance(r['features'], dict) else {}}
+                    for r in healthy_rows
+                ]
+                self.sick_features = [
+                    {'file': r['filename'], 'added': r.get('added_at', ''),
+                     'features': r['features'] if isinstance(r['features'], dict) else {}}
+                    for r in sick_rows
+                ]
+
+                self.logger.info(
+                    f"Loaded reference database from Supabase: "
+                    f"{len(self.healthy_features)} healthy, "
+                    f"{len(self.sick_features)} sick samples"
+                )
+                return
+            except Exception as e:
+                self.logger.warning(f"Failed to load from Supabase, falling back to disk: {e}")
+
+        # Filesystem fallback
         if not self.db_path.exists():
             self.logger.info("No reference database found, starting fresh")
             return
@@ -104,7 +133,10 @@ class ReferenceDatabase:
             self.sick_features = []
 
     def _save_database(self):
-        """Persist reference features to disk"""
+        """Persist reference features to disk (no-op for Supabase)"""
+        if is_supabase_active():
+            return  # Supabase writes are atomic per-insert
+
         # Ensure directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -135,20 +167,21 @@ class ReferenceDatabase:
             True if sample was added successfully
         """
         # Extract only the features we use for comparison
-        sample = {
-            'file': filename,
-            'added': datetime.now().isoformat(),
-            'features': self._extract_comparison_features(features)
-        }
+        comparison_features = self._extract_comparison_features(features)
 
         # Skip if features are missing
-        if not sample['features']:
+        if not comparison_features:
             self.logger.warning(f"Skipping {filename}: no valid features")
             return False
 
-        # Add to appropriate list
+        sample = {
+            'file': filename,
+            'added': datetime.now().isoformat(),
+            'features': comparison_features
+        }
+
+        # Add to appropriate in-memory list
         if classification.upper() in ('HEALTHY', 'NORMAL'):
-            # Check for duplicates
             if not any(s['file'] == filename for s in self.healthy_features):
                 self.healthy_features.append(sample)
                 self.logger.info(f"Added healthy reference: {filename}")
@@ -163,8 +196,13 @@ class ReferenceDatabase:
                 self.logger.debug(f"Duplicate skipped: {filename}")
                 return False
 
-        # Save to disk
-        self._save_database()
+        # Persist: Supabase table or local JSON file
+        if is_supabase_active():
+            backend = get_backend()
+            backend.add_reference_sample(filename, classification, comparison_features)
+        else:
+            self._save_database()
+
         return True
 
     def _extract_comparison_features(self, features: Dict) -> Dict:

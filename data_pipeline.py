@@ -3,7 +3,7 @@ Sentio MVP - Non-Destructive Data Pipeline
 
 Key Features:
 - Stages files for review (copies, never moves originals)
-- Tracks AI classifications in CSV log
+- Tracks AI classifications via backend (Supabase or local CSV)
 - Supports human validation before final classification
 - Maintains audit trail of all decisions
 - Auto-populates reference database when files are verified
@@ -22,6 +22,7 @@ import logging
 
 # Import reference database for auto-adding verified samples
 from reference_database import get_reference_database
+from supabase_client import get_backend, is_supabase_active
 
 
 # Load configuration
@@ -87,19 +88,19 @@ def stage_classification(file_path, modality, ai_classification, confidence, fea
         dict: The staged record
     """
     ensure_directories()
-    config = get_config()
-    project_root = Path(__file__).parent
+    backend = get_backend()
 
     file_path = Path(file_path)
-    staging_folder = project_root / config['paths']['staging_folder']
-    staging_log = get_staging_log_path()
-
-    # Generate unique filename to avoid collisions
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     staged_filename = f"{timestamp}_{file_path.name}"
-    staging_path = staging_folder / staged_filename
 
-    # Create the record
+    # Ensure features is a dict (not JSON string) for Supabase JSONB
+    if isinstance(features, str):
+        try:
+            features = json.loads(features)
+        except json.JSONDecodeError:
+            features = {}
+
     record = {
         'timestamp': datetime.now().isoformat(),
         'original_file': file_path.name,
@@ -108,25 +109,26 @@ def stage_classification(file_path, modality, ai_classification, confidence, fea
         'modality': modality,
         'ai_classification': ai_classification,
         'confidence': round(confidence, 4),
-        'features': json.dumps(features, default=str),
+        'features': features,
         'human_validated': False,
         'human_agrees': None,
         'final_classification': None,
-        'validated_at': None
+        'validated_at': None,
     }
 
-    # Copy file to staging (non-destructive!)
-    shutil.copy2(file_path, staging_path)
-
-    # Append to staging log
-    fieldnames = list(record.keys())
-    file_exists = staging_log.exists()
-
-    with open(staging_log, 'a', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(record)
+    if is_supabase_active():
+        # Upload file to cloud storage, then insert record
+        storage_path = f"staging/{staged_filename}"
+        backend.upload_file(str(file_path), storage_path)
+        record['storage_path'] = storage_path
+        backend.insert_staging_record(record)
+    else:
+        # Local: copy file to staging folder, append to CSV
+        config = get_config()
+        project_root = Path(__file__).parent
+        staging_folder = project_root / config['paths']['staging_folder']
+        shutil.copy2(file_path, staging_folder / staged_filename)
+        backend.insert_staging_record(record)
 
     return record
 
@@ -138,23 +140,39 @@ def get_pending_reviews():
     Returns:
         list: List of records awaiting validation
     """
-    staging_log = get_staging_log_path()
-    if not staging_log.exists():
-        return []
+    backend = get_backend()
+    return backend.get_pending_reviews()
 
-    pending = []
-    with open(staging_log, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row['human_validated'] == 'False':
-                # Parse features back to dict
-                try:
-                    row['features'] = json.loads(row['features'])
-                except (json.JSONDecodeError, KeyError):
-                    row['features'] = {}
-                pending.append(row)
 
-    return pending
+def _determine_final_classification(ai_classification, human_agrees,
+                                    human_classification=None):
+    """Determine final classification based on human feedback."""
+    if human_agrees:
+        return ai_classification
+
+    if human_classification:
+        return human_classification
+
+    # Auto-flip logic
+    flip = {
+        'HEALTHY': 'SICK',
+        'SICK': 'HEALTHY',
+        'NORMAL': 'DISTRESS',
+        'DISTRESS': 'NORMAL',
+    }
+    return flip.get(ai_classification, human_classification or 'UNKNOWN')
+
+
+def _get_verified_storage_prefix(modality, final_class):
+    """Get the storage bucket prefix for verified files."""
+    if modality == 'audio':
+        if final_class in ('HEALTHY', 'NORMAL'):
+            return 'verified/healthy_audio'
+        return 'verified/sick_audio'
+    else:
+        if final_class in ('HEALTHY', 'NORMAL'):
+            return 'verified/healthy_images'
+        return 'verified/sick_images'
 
 
 def finalize_classification(staged_file, human_agrees, human_classification=None):
@@ -169,95 +187,110 @@ def finalize_classification(staged_file, human_agrees, human_classification=None
     Returns:
         bool: True if successful, False otherwise
     """
+    backend = get_backend()
     config = get_config()
     project_root = Path(__file__).parent
-    staging_log = get_staging_log_path()
 
-    if not staging_log.exists():
-        return False
+    if is_supabase_active():
+        # Find the record to get AI classification for flip logic
+        pending = backend.get_pending_reviews()
+        target = None
+        for r in pending:
+            if r['staged_file'] == staged_file:
+                target = r
+                break
 
-    # Read all records
-    records = []
-    target_record = None
+        if target is None:
+            return False
 
-    with open(staging_log, 'r') as f:
-        reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames
-        for row in reader:
-            if row['staged_file'] == staged_file and row['human_validated'] == 'False':
-                # Update this record
-                row['human_validated'] = 'True'
-                row['human_agrees'] = str(human_agrees)
-                row['validated_at'] = datetime.now().isoformat()
+        final_class = _determine_final_classification(
+            target['ai_classification'], human_agrees, human_classification
+        )
 
-                if human_agrees:
-                    row['final_classification'] = row['ai_classification']
-                else:
-                    # Human disagrees - use provided classification or flip the AI's
-                    if human_classification:
-                        row['final_classification'] = human_classification
-                    else:
-                        # Auto-flip logic
-                        ai_class = row['ai_classification']
-                        if ai_class == 'HEALTHY':
-                            row['final_classification'] = 'SICK'
-                        elif ai_class == 'SICK':
-                            row['final_classification'] = 'HEALTHY'
-                        elif ai_class == 'NORMAL':
-                            row['final_classification'] = 'DISTRESS'
-                        elif ai_class == 'DISTRESS':
-                            row['final_classification'] = 'NORMAL'
-                        else:
-                            row['final_classification'] = human_classification or 'UNKNOWN'
+        # Update the record in Supabase
+        backend.finalize_staging_record(staged_file, human_agrees, final_class)
 
-                target_record = row
-            records.append(row)
+        # Move file in cloud storage
+        storage_path = target.get('storage_path', f"staging/{staged_file}")
+        dest_prefix = _get_verified_storage_prefix(
+            target.get('modality', 'vision'), final_class
+        )
+        dest_path = f"{dest_prefix}/{target['original_file']}"
+        try:
+            backend.move_file(storage_path, dest_path)
+        except Exception as e:
+            logger = logging.getLogger('sentio.pipeline')
+            logger.warning(f"Failed to move file in storage: {e}")
 
-    if target_record is None:
-        return False
+        # Build a record dict for _add_to_reference_database
+        target['final_classification'] = final_class
+        _add_to_reference_database(target)
+        return True
 
-    # Write updated records
-    with open(staging_log, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(records)
+    else:
+        # Filesystem path: read CSV, update, move file locally
+        staging_log = get_staging_log_path()
+        if not staging_log.exists():
+            return False
 
-    # Move file to final location based on modality and classification
-    staging_folder = project_root / config['paths']['staging_folder']
-    staging_path = staging_folder / staged_file
+        records = []
+        target_record = None
 
-    final_class = target_record['final_classification']
-    modality = target_record.get('modality', 'vision')
+        with open(staging_log, 'r') as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames
+            for row in reader:
+                if row['staged_file'] == staged_file and row['human_validated'] == 'False':
+                    row['human_validated'] = 'True'
+                    row['human_agrees'] = str(human_agrees)
+                    row['validated_at'] = datetime.now().isoformat()
+                    row['final_classification'] = _determine_final_classification(
+                        row['ai_classification'], human_agrees, human_classification
+                    )
+                    target_record = row
+                records.append(row)
 
-    # Route to appropriate folder based on modality + classification
-    if modality == 'audio':
-        if final_class in ('HEALTHY', 'NORMAL'):
-            final_folder = project_root / config['paths']['healthy_audio_folder']
+        if target_record is None:
+            return False
+
+        with open(staging_log, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(records)
+
+        # Move file to final folder
+        staging_folder = project_root / config['paths']['staging_folder']
+        staging_path = staging_folder / staged_file
+
+        final_class = target_record['final_classification']
+        modality = target_record.get('modality', 'vision')
+
+        if modality == 'audio':
+            if final_class in ('HEALTHY', 'NORMAL'):
+                final_folder = project_root / config['paths']['healthy_audio_folder']
+            else:
+                final_folder = project_root / config['paths']['sick_audio_folder']
         else:
-            final_folder = project_root / config['paths']['sick_audio_folder']
-    else:  # vision (images)
-        if final_class in ('HEALTHY', 'NORMAL'):
-            final_folder = project_root / config['paths']['healthy_images_folder']
-        else:
-            final_folder = project_root / config['paths']['sick_images_folder']
+            if final_class in ('HEALTHY', 'NORMAL'):
+                final_folder = project_root / config['paths']['healthy_images_folder']
+            else:
+                final_folder = project_root / config['paths']['sick_images_folder']
 
-    final_path = final_folder / target_record['original_file']
+        final_path = final_folder / target_record['original_file']
 
-    # Handle filename conflicts
-    if final_path.exists():
-        stem = final_path.stem
-        suffix = final_path.suffix
-        counter = 1
-        while final_path.exists():
-            final_path = final_folder / f"{stem}_{counter}{suffix}"
-            counter += 1
+        if final_path.exists():
+            stem = final_path.stem
+            suffix = final_path.suffix
+            counter = 1
+            while final_path.exists():
+                final_path = final_folder / f"{stem}_{counter}{suffix}"
+                counter += 1
 
-    shutil.move(staging_path, final_path)
+        if staging_path.exists():
+            shutil.move(staging_path, final_path)
 
-    # Add to reference database for future similarity-based classification
-    _add_to_reference_database(target_record)
-
-    return True
+        _add_to_reference_database(target_record)
+        return True
 
 
 def _add_to_reference_database(record: dict):
@@ -312,16 +345,8 @@ def get_statistics():
     Returns:
         dict: Statistics about staged, validated, and classified files
     """
-    staging_log = get_staging_log_path()
-    if not staging_log.exists():
-        return {
-            'total_staged': 0,
-            'pending_review': 0,
-            'validated': 0,
-            'ai_correct': 0,
-            'ai_incorrect': 0,
-            'accuracy': 0.0
-        }
+    backend = get_backend()
+    all_records = backend.get_all_staging_records()
 
     stats = {
         'total_staged': 0,
@@ -330,40 +355,40 @@ def get_statistics():
         'ai_correct': 0,
         'ai_incorrect': 0,
         'by_modality': {},
-        'by_classification': {}
+        'by_classification': {},
+        'accuracy': 0.0,
     }
 
-    with open(staging_log, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            stats['total_staged'] += 1
+    for row in all_records:
+        stats['total_staged'] += 1
 
-            # Track by modality
-            modality = row.get('modality', 'unknown')
-            if modality not in stats['by_modality']:
-                stats['by_modality'][modality] = {'total': 0, 'correct': 0}
-            stats['by_modality'][modality]['total'] += 1
+        modality = row.get('modality', 'unknown')
+        if modality not in stats['by_modality']:
+            stats['by_modality'][modality] = {'total': 0, 'correct': 0}
+        stats['by_modality'][modality]['total'] += 1
 
-            if row['human_validated'] == 'False':
-                stats['pending_review'] += 1
+        # Normalize validated flag (bool from Supabase, string from CSV)
+        validated = row.get('human_validated')
+        is_validated = validated is True or validated == 'True'
+
+        if not is_validated:
+            stats['pending_review'] += 1
+        else:
+            stats['validated'] += 1
+            agrees = row.get('human_agrees')
+            is_agrees = agrees is True or agrees == 'True'
+            if is_agrees:
+                stats['ai_correct'] += 1
+                stats['by_modality'][modality]['correct'] += 1
             else:
-                stats['validated'] += 1
-                if row['human_agrees'] == 'True':
-                    stats['ai_correct'] += 1
-                    stats['by_modality'][modality]['correct'] += 1
-                else:
-                    stats['ai_incorrect'] += 1
+                stats['ai_incorrect'] += 1
 
-                # Track by classification
-                final = row.get('final_classification', 'unknown')
-                stats['by_classification'][final] = \
-                    stats['by_classification'].get(final, 0) + 1
+            final = row.get('final_classification', 'unknown')
+            stats['by_classification'][final] = \
+                stats['by_classification'].get(final, 0) + 1
 
-    # Calculate accuracy
     if stats['validated'] > 0:
         stats['accuracy'] = stats['ai_correct'] / stats['validated']
-    else:
-        stats['accuracy'] = 0.0
 
     return stats
 

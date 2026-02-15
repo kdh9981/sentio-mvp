@@ -20,6 +20,9 @@ streamlit>=1.31.0           # Interactive web app for training (audio input supp
 matplotlib>=3.7.0           # Audio waveform visualization
 streamlit-paste-button>=0.1 # Clipboard image paste support
 
+# Cloud Storage
+supabase>=2.0.0               # Persistent storage backend (Supabase)
+
 # Optional: ONNX optimization for faster CPU inference
 # Uncomment if you want to export models to ONNX format
 # onnxruntime>=1.16.0

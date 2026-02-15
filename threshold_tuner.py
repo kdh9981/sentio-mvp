@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
 
+from supabase_client import get_backend, is_supabase_active
+
 
 def load_config(config_path='config.yaml'):
     """Load configuration from YAML file"""
@@ -63,15 +65,8 @@ class ThresholdTuner:
         self.history = self._load_history()
 
     def _load_history(self):
-        """Load feedback history from JSON file"""
-        if self.history_file.exists():
-            try:
-                with open(self.history_file, 'r') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, IOError):
-                pass
-
-        return {
+        """Load feedback history from Supabase or JSON file"""
+        default = {
             'vision': {
                 'feedback': [],
                 'current_threshold': self.config['vision']['thresholds']['health_score_threshold'],
@@ -85,6 +80,43 @@ class ThresholdTuner:
                 'last_updated': None
             }
         }
+
+        if is_supabase_active():
+            try:
+                backend = get_backend()
+                for mod in ('vision', 'audio'):
+                    rows = backend.get_threshold_feedback(mod)
+                    default[mod]['feedback'] = [
+                        {
+                            'timestamp': r.get('timestamp', ''),
+                            'score': float(r['score']),
+                            'ai_prediction': r['ai_prediction'],
+                            'human_agrees': r['human_agrees'],
+                            'current_threshold': float(r['current_threshold']),
+                        }
+                        for r in rows
+                    ]
+                    # Load threshold override from Supabase config table
+                    tc = backend.get_threshold_config(mod)
+                    if tc:
+                        default[mod]['current_threshold'] = float(tc['current_threshold'])
+                        default[mod]['suggested_threshold'] = (
+                            float(tc['suggested_threshold'])
+                            if tc.get('suggested_threshold') is not None
+                            else None
+                        )
+                return default
+            except Exception:
+                pass  # fall through to filesystem
+
+        if self.history_file.exists():
+            try:
+                with open(self.history_file, 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        return default
 
     def _save_history(self):
         """Save feedback history to JSON file"""
@@ -116,15 +148,27 @@ class ThresholdTuner:
         if modality not in self.history:
             return False
 
+        current_thresh = self._get_current_threshold(modality)
         feedback_entry = {
             'timestamp': datetime.now().isoformat(),
             'score': score,
             'ai_prediction': ai_prediction,
             'human_agrees': human_agrees,
-            'current_threshold': self._get_current_threshold(modality)
+            'current_threshold': current_thresh
         }
 
         self.history[modality]['feedback'].append(feedback_entry)
+
+        # Persist to Supabase if active
+        if is_supabase_active():
+            try:
+                backend = get_backend()
+                backend.record_threshold_feedback({
+                    'modality': modality,
+                    **feedback_entry,
+                })
+            except Exception:
+                pass  # non-critical, in-memory state is still correct
 
         # Recalculate suggested threshold
         self._update_suggested_threshold(modality)
@@ -134,7 +178,17 @@ class ThresholdTuner:
         return True
 
     def _get_current_threshold(self, modality):
-        """Get the current threshold for a modality"""
+        """Get the current threshold for a modality (Supabase override first)"""
+        # Check Supabase config table override
+        if is_supabase_active():
+            try:
+                tc = get_backend().get_threshold_config(modality)
+                if tc and tc.get('current_threshold') is not None:
+                    return float(tc['current_threshold'])
+            except Exception:
+                pass
+
+        # Fallback to config.yaml
         if modality == 'vision':
             return self.config['vision']['thresholds']['health_score_threshold']
         elif modality == 'audio':
@@ -255,7 +309,7 @@ class ThresholdTuner:
 
     def apply_threshold_update(self, modality):
         """
-        Apply the suggested threshold to config.yaml.
+        Apply the suggested threshold to Supabase config table or config.yaml.
 
         Returns:
             bool: True if update was applied, False otherwise
@@ -268,12 +322,24 @@ class ThresholdTuner:
         if abs(suggested - current) < 0.01:
             return False  # No significant change
 
-        # Read config file
+        if is_supabase_active():
+            try:
+                backend = get_backend()
+                backend.update_threshold_config(modality, {
+                    'current_threshold': suggested,
+                    'suggested_threshold': suggested,
+                })
+                self.history[modality]['current_threshold'] = suggested
+                self._save_history()
+                return True
+            except Exception:
+                pass  # fall through to config.yaml
+
+        # Filesystem: update config.yaml
         config_path = self.project_root / 'config.yaml'
         with open(config_path, 'r') as f:
             config_content = f.read()
 
-        # Update the relevant threshold
         if modality == 'vision':
             old_line = f"health_score_threshold: {current}"
             new_line = f"health_score_threshold: {suggested}"
@@ -286,7 +352,6 @@ class ThresholdTuner:
             with open(config_path, 'w') as f:
                 f.write(config_content)
 
-            # Update local config
             self.config = load_config()
             self.history[modality]['current_threshold'] = suggested
             self._save_history()

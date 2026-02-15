@@ -25,6 +25,9 @@ __pycache__/
 venv/
 .venv/
 
+# Streamlit secrets (contains Supabase credentials)
+.streamlit/secrets.toml
+
 # Debug logs
 firebase-debug.log
 *.log
